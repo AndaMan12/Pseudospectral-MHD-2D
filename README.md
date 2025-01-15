@@ -1,2 +1,2 @@
 # Pseudo Spectral MHD
-Magneto Hydrodynamics
+Pseudo spectral for Magneto Hydrodynamics
