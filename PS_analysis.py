@@ -60,12 +60,12 @@ test_name = args.name
 f = h5py.File('sim_data' + test_name + '.hdf5', 'r')
 
 w_dat = np.array(f['w'])
-#j_dat = np.array(f['j'])
+j_dat = np.array(f['j'])
 
 f.close()
 
 w_k = fft2(w_dat, axes=(-2, -1))
-#j_k = fft2(j_dat, axes=(-2, -1))
+j_k = fft2(j_dat, axes=(-2, -1))
 
 
 ###############################################################################################################################
@@ -110,12 +110,12 @@ writervideo = animation.FFMpegWriter(fps = Nframes // args.T)
 u = np.array([u_biotSavaart(w_k[i,:,:]) for i in tqdm(range(Nframes))])
 speed = np.sqrt(u[:, 0, :, :]**2 + u[:, 1, :, :]**2) 
 lw_u = speed / np.max(speed) # linewidth for visualisation
-"""
+
 B = np.array([u_biotSavaart(j_k[i,:,:]) for i in tqdm(range(Nframes))])
 B_strength = np.sqrt(B[:, 0, :, :]**2 + B[:, 1, :, :]**2) 
 lw_B = B_strength / np.max(B_strength) # linewidth for visualisation
-gc.collect()
-"""
+# gc.collect()
+
 
 speed_k = np.fft.fftshift(fft2(speed, axes=(-2, -1)))
 power_spectrum_speed = np.abs(speed_k)**2

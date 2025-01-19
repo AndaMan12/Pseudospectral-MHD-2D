@@ -194,6 +194,11 @@ def B_biotSavaart (j_k):
 
 ############################################################## Initial conditions #########################################################################
 
+"""
+Set your appropriate initial condition here. For my project on MHD turbulence, I started with a random field with
+a pre-set energy spectrum.
+"""
+
 w0 = args.w
 temp_w = initialize_field_fourier_space(np.sqrt(k2), init_spectrum) #w0 * np.sin(8 * np.pi * X / L) * np.sin(8 * np.pi * Y / L)
 temp_w = w0 * temp_w / np.max(temp_w)
@@ -233,7 +238,7 @@ jj = j[0].copy() # auxiliary array
 ######################################## Utility Functions for computing non-linearoperators ############################################################
 
 """
-This code does not use masking/ volume penalisation. That is yet to be tested.
+The masking/ volume penalisation feature has been commented out. I tested, it seems to works but needs more testing.
 
 Need a curl utility function for that!!!!
 """
@@ -304,7 +309,7 @@ else: print('ERROR: Undefined Integrator')
 
 
 
-##########################################################################################################################################################
+############################################### Actually running simulation and saving ##############################################################################
 test_name = args.name
 with h5py.File('sim_data' + test_name + '.hdf5', 'w') as f:
     max_shape = (None,) + temp_w.shape  # None indicates an extendable dimension
@@ -335,106 +340,4 @@ with h5py.File('sim_data' + test_name + '.hdf5', 'w') as f:
 
 
 
-############################################################# Movie making ##################################################################################
-
-with h5py.File('sim_data' + test_name + '.hdf5', 'r') as f:
-    # Access the datasets
-    w_dataset = f['w']
-    j_dataset = f['j']
-    Nframes = w_dataset.shape[0]  # Assuming the first dimension is time/frames
-    t = np.linspace(0.0, Nsteps * h, Nframes)
-
-    # Setup for animation
-    fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-    writervideo = animation.FFMpegWriter(fps = Nframes // T)
-
-
-    # Function to animate vorticity
-    def animate_w(i):
-        ax.clear()
-        ax.imshow(w_dataset[i], cmap='RdBu_r')
-        ax.text(190, 20, 't={:.0f}'.format(t[i]), bbox=dict(boxstyle="round", ec='white', fc='white'))
-        ax.set_xticks([])
-        ax.set_yticks([])
-        return fig,
-
-
-    # Function to animate current density
-    def animate_j(i):
-        ax.clear()
-        ax.imshow(j_dataset[i], cmap='RdBu_r')
-        ax.text(190, 20, 't={:.0f}'.format(t[i]), bbox=dict(boxstyle="round", ec='white', fc='white'))
-        ax.set_xticks([])
-        ax.set_yticks([])
-        return fig,
-
-
-    # Create and save the animations
-    ani_w = animation.FuncAnimation(fig, animate_w, frames=Nframes, interval=10)
-    ani_w.save('pseudoSpectraMHD_' + test_name + '_vorticity.mp4', writer=writervideo, dpi=200)
-
-    ani_j = animation.FuncAnimation(fig, animate_j, frames=Nframes, interval=10)
-    ani_j.save('pseudoSpectraMHD_' + test_name + '_current_density.mp4', writer=writervideo, dpi=200)
-
 ############################################################# GAME OVER ####################################################################################
-
-
-
-"""
-# time evolution loop
-
-for i in tqdm(range(1,Nsteps)):
-    # calculate the nonlinear operator (with dealising)
-    Noperator_w_k, Noperator_j_k = Noperator_func_w_B (w_k, j_k)
-    #print(Noperator_w_k)
-    # updating in time
-    w_k, j_k = w_k*Tlinear_w_k + Noperator_w_k*Tnon_w_k, j_k*Tlinear_j_k + Noperator_j_k*Tnon_j_k 
-    # IFT to next step
-    ww = ifft2(w_k).real
-    jj = ifft2(j_k).real
-    # test to output
-    if (i % nframes) == 0: 
-        w[i//nframes] = ww
-        j[i//nframes] = jj
-       # print("frame = ", i//nframes)
-
-############################################################# Movie making ##################################################################################
-
-writervideo = animation.FFMpegWriter(fps=Nframes/10) 
-test_name = args.name
-fig, ax = plt.subplots(1,1,figsize=(4,4))
-t = np.linspace(0.0,Nsteps*h,Nframes)
-def animate_w(i):
-    ax.clear()
-    # im = ax.imshow(n[0],cmap='RdBu_r', vmin=0.0, vmax=1.0)
-    # cb = fig.colorbar(im,ax=ax, label=r'$\eta(x,y)$', shrink=0.8)
-    ax.imshow(w[i],cmap='RdBu_r')
-    ax.text(190,20,'t={:.0f}'.format(t[i]),
-            bbox=dict(boxstyle="round",ec='white',fc='white'))
-    # ax.set_title(r'$\eta_0=%.1f$'% n0)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    return fig,
-
-ani_w = animation.FuncAnimation(fig, animate_w, frames= Nframes, interval = 10)
-ani_w.save('pseudoSpectraMHD_'+ test_name +'_vorticity.mp4',writer=writervideo,dpi=200)
-
-def animate_j(i):
-    ax.clear()
-    # im = ax.imshow(n[0],cmap='RdBu_r', vmin=0.0, vmax=1.0)
-    # cb = fig.colorbar(im,ax=ax, label=r'$\eta(x,y)$', shrink=0.8)
-    ax.imshow(j[i],cmap='RdBu_r')
-    ax.text(190,20,'t={:.0f}'.format(t[i]),
-            bbox=dict(boxstyle="round",ec='white',fc='white'))
-    # ax.set_title(r'$\eta_0=%.1f$'% n0)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    return fig,
-
-ani_j = animation.FuncAnimation(fig, animate_j, frames= Nframes, interval = 10)
-ani_j.save('pseudoSpectraMHD_'+ test_name +'_current_density.mp4',writer=writervideo,dpi=200)
-
-############################################################# GAME OVER ####################################################################################
-"""
