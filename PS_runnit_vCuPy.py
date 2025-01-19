@@ -68,9 +68,9 @@ x = cp.linspace(0, L, N)
 dx = x[1] - x[0]
 X, Y = cp.meshgrid(x, x)
 
-nu = args.nu  # viscosity
-eta = args.eta  # magnetic diffusivity
-#epsilon = 5e-4 #porosity
+nu = args.nu   # viscosity
+eta = args.eta # magnetic diffusivity
+#epsilon = 5e-4 # porosity (example usage if volume penalisation is enabled)
 
 # The Fourier variables
 w_k = cp.empty((N, N), dtype=cp.complex64)
@@ -84,7 +84,7 @@ k2 = cp.sum(k*k, axis=0, dtype=cp.float32)
 kmax_dealias = kx.max() * 2.0 / 3.0  # The "2/3 rule" for dealiasing
 
 # Dealising matrix
-dealias = ((cp.abs(k[0]) < kmax_dealias) * (cp.abs(k[1]) < kmax_dealias)).astype(bool)
+dealias = ((cp.abs(k[0]) < kmax_dealias) & (cp.abs(k[1]) < kmax_dealias)).astype(bool)
 
 ############################################################# Initial conditions for w_k and j_k from spectrum ##########################################################
 def initialize_field_fourier_space(kmag, spectrum_function):
@@ -123,14 +123,14 @@ def gradient(data, h):  # WARNING! This is not being used in this code!!
     derivative_grid = cp.zeros((2,) + data.shape, dtype=data.dtype)
 
     # Doing x derivative
-    derivative_grid[0, 1:-1, :] = (data[2:, :] - data[:-2, :]) / (2*h)  # interior points: central differences
-    derivative_grid[0, 0, :] = (data[1, :] - data[0, :]) / h           # left edge, forward differences
-    derivative_grid[0, -1, :] = (data[-1, :] - data[-2, :]) / h        # right edge, backward differences
+    derivative_grid[0, 1:-1, :] = (data[2:, :] - data[:-2, :]) / (2*h)
+    derivative_grid[0, 0, :]    = (data[1, :] - data[0, :]) / h
+    derivative_grid[0, -1, :]   = (data[-1, :] - data[-2, :]) / h
     
     # Doing y derivative
-    derivative_grid[1, :, 1:-1] = (data[:, 2:] - data[:, :-2]) / (2*h)  # interior points: central differences
-    derivative_grid[1, :, 0] = (data[:, 1] - data[:, 0]) / h           # bottom edge, forward differences
-    derivative_grid[1, :, -1] = (data[:, -1] - data[:, -2]) / h        # top edge, backward differences
+    derivative_grid[1, :, 1:-1] = (data[:, 2:] - data[:, :-2]) / (2*h)
+    derivative_grid[1, :, 0]    = (data[:, 1] - data[:, 0]) / h
+    derivative_grid[1, :, -1]   = (data[:, -1] - data[:, -2]) / h
 
     return derivative_grid
 
@@ -146,19 +146,16 @@ def laplacian_2d(field, dx):
             else:
                 # Edges and corners - one-sided difference
                 dx2 = dx**2
-                # Top and bottom rows (without corners)
                 if i == 0 and 1 <= j < ny - 1:
                     laplacian[i, j] = (2*field[i, j] - 5*field[i+1, j] + 4*field[i+2, j] - field[i+3, j]) / dx2
                 elif i == nx - 1 and 1 <= j < ny - 1:
                     laplacian[i, j] = (2*field[i, j] - 5*field[i-1, j] + 4*field[i-2, j] - field[i-3, j]) / dx2
-                
-                # Left and right columns (without corners)
+
                 if j == 0 and 1 <= i < nx - 1:
                     laplacian[i, j] = (2*field[i, j] - 5*field[i, j+1] + 4*field[i, j+2] - field[i, j+3]) / dx2
                 elif j == ny - 1 and 1 <= i < nx - 1:
                     laplacian[i, j] = (2*field[i, j] - 5*field[i, j-1] + 4*field[i, j-2] - field[i, j-3]) / dx2
-                
-                # Corners
+
                 if i == 0 and j == 0:
                     laplacian[i, j] = (2*field[i, j] - 5*field[i+1, j+1] + 4*field[i+2, j+2] - field[i+3, j+3]) / dx2
                 elif i == 0 and j == ny - 1:
@@ -185,8 +182,7 @@ temp_w = w0 * temp_w / cp.max(temp_w)
 temp_wk = fft2(temp_w)  # FT initial condition
 u_init = u_biotSavaart(temp_wk)
 
-# The time step definition
-# We must bring max(u_init[0]) to CPU before using in python int/float operations.
+# Time step definition (CFL-based)
 cfl_est = args.CFL / ((cp.max(u_init[0]) / dx + cp.max(u_init[1]) / dx).get())
 log10h = int(cp.log10(cfl_est).get()) - 1
 h = 10**log10h
@@ -194,27 +190,46 @@ print("Time step = {}".format(h))
 
 T = args.T
 Nsteps = int(T / h)
-dframes = h * 10  # time step to output
-Nframes = int(T / dframes)  # frames to the output
+dframes = h * 10
+Nframes = int(T / dframes)
 nframes = Nsteps // Nframes
 
-# The array of outputs (w: vorticity, j: current density)
+# Arrays of outputs (w: vorticity, j: current density)
 w = cp.empty((Nframes, N, N), dtype=cp.float32)
 j = cp.empty((Nframes, N, N), dtype=cp.float32)
 
 w[0] = temp_w
 w_k[:] = temp_wk
-Noperator_w_k = w_k.copy()  # auxiliary array
-ww = w[0].copy()  # auxiliary array
+Noperator_w_k = w_k.copy()  # auxiliary
+ww = w[0].copy()
 
 j0 = args.j
-j[0] = initialize_field_fourier_space(cp.sqrt(k2), init_spectrum)
-j[0] = j0 * j[0] / cp.max(j[0])
-j_k[:] = fft2(j[0])  # FT initial condition
-Noperator_j_k = j_k.copy()  # auxiliary array
-jj = j[0].copy()  # auxiliary array
+tmp_j = initialize_field_fourier_space(cp.sqrt(k2), init_spectrum)
+tmp_j = j0 * tmp_j / cp.max(tmp_j)
+j[0] = tmp_j
+j_k[:] = fft2(tmp_j)
+Noperator_j_k = j_k.copy()
+jj = j[0].copy()
 
 ######################################## Utility Functions for computing non-linearoperators ############################################################
+# Optional Volume Penalization feature if you want to do your simulations in any wonky geometrical region!
+# Make a mask with 1's in the regions you want to keep all quantities damped to 0 and 0's in actualsim. region.
+
+# Example: Circular mask #########################################################################
+# Below is an example mask that is 0 inside a circle of diameter = 3/4 of the simulation box,
+# and 1 outside it. The circle is centered at (L/2, L/2).
+# Uncomment the relevant lines in the Noperator_func_w_B to apply a volume penalisation 
+# or boundary condition if desired.
+
+# radius = 0.75 * 0.5 * L  # => diameter = 0.75 * L => radius = 0.375 * L
+# center_x = L / 2
+# center_y = L / 2
+# dist = cp.sqrt((X - center_x)**2 + (Y - center_y)**2)
+
+# Inside circle => 0, outside => 1
+# mask = cp.where(dist <= radius, 0.0, 1.0).astype(cp.float32)
+#################################################################################################
+
 Loperator_w_k = -nu * k2
 Loperator_j_k = -eta * k2
 
@@ -235,15 +250,24 @@ def Noperator_func_w_B(w_k, j_k):
     u = u_biotSavaart(w_k)
     B = B_biotSavaart(j_k)
 
-    # Non linear terms for the w_k evolution
-    B_dot_grad_j = B[0, :, :] * grad_j[0, :, :] + B[1, :, :] * grad_j[1, :, :]
-    u_dot_grad_w = u[0, :, :] * grad_w[0, :, :] + u[1, :, :] * grad_w[1, :, :]
+    # Nonlinear terms for the w_k evolution
+    B_dot_grad_j = B[0] * grad_j[0] + B[1] * grad_j[1]
+    u_dot_grad_w = u[0] * grad_w[0] + u[1] * grad_w[1]
 
-    # Non linear terms for the j_k evolution
-    # cross(B, u) is a scalar in 2D
+    # Example volume penalization for w or j can be applied here, e.g.:
+    # epsilon = 1e-4
+    # mask_w = -1 / epsilon * mask * w_real
+    # mask_j = -1 / epsilon * mask * j_real
+
+    # Nonlinear terms for the j_k evolution
     B_cross_u = cross2D(B, u)
     lap_B_cross_u = laplacian_2d(B_cross_u, dx)
 
+    # If using mask penalization, you might do:
+    # Noperator_w = fft2(mask_w + B_dot_grad_j - u_dot_grad_w)
+    # Noperator_j = fft2(mask_j + lap_B_cross_u)
+
+    # Default: no mask usage
     Noperator_w = fft2(B_dot_grad_j - u_dot_grad_w)
     Noperator_j = fft2(lap_B_cross_u)
 
@@ -251,7 +275,6 @@ def Noperator_func_w_B(w_k, j_k):
 
 ######################################################### Time integral methods #######################################################################################
 method = args.method
-# Defining the time marching operators arrays
 Tlinear_w_k = 0
 Tnon_w_k = 0
 Tlinear_j_k = 0
@@ -274,19 +297,18 @@ elif method == 'ETD':
     Tlinear_j_k = cp.exp(h * Loperator_j_k)
 
     def myexp(x):
-        # If x == 1, return 1.0; else return (x - 1.0)/log(x)
-        # We adapt for array usage with cp.where
+        # if x == 1 => 1.0; else => (x - 1.0)/log(x)
         return cp.where(cp.isclose(x, 1.0), 1.0, (x - 1.0) / cp.log(x))
 
     Tnon_w_k = dealias * h * myexp(Tlinear_w_k)
     Tnon_j_k = dealias * h * myexp(Tlinear_j_k)
 else:
-    print('ERROR: Undefined Integrator')
+    print('ERROR: Undefined Integrator method')
 
 ############################################### Actually running simulation and saving ##############################################################################
 test_name = args.name
 with h5py.File('sim_data' + test_name + '.hdf5', 'w') as f:
-    max_shape = (None,) + (N, N)  # None indicates an extendable dimension
+    max_shape = (None,) + (N, N)
     w_dataset = f.create_dataset('w', shape=(0, N, N), maxshape=max_shape)
     j_dataset = f.create_dataset('j', shape=(0, N, N), maxshape=max_shape)
     
@@ -309,7 +331,7 @@ with h5py.File('sim_data' + test_name + '.hdf5', 'w') as f:
             w_dataset.resize(frame_counter + 1, axis=0)
             j_dataset.resize(frame_counter + 1, axis=0)
 
-            # Append new frames (transfer to CPU for HDF5 write)
+            # Transfer GPU data to CPU for HDF5 I/O
             w_dataset[frame_counter] = cp.asnumpy(ww)
             j_dataset[frame_counter] = cp.asnumpy(jj)
 
